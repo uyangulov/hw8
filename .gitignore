@@ -1,0 +1,35 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Python virtual environment
+.venv/
+env/
+venv/
+
+# Pytest cache
+.pytest_cache/
+
+# VSCode config
+.vscode/
+
+# MacOS / Linux system files
+.DS_Store
+
+# MyPy and other type-checker caches
+.mypy_cache/
+.pyre/
+.pytype/
+
+# Test result files
+*.log
+coverage.xml
+htmlcov/
+*.cover
+
+# Notebook output
+*.nbconvert.ipynb
