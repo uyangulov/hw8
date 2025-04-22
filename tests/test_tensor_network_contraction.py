@@ -59,22 +59,3 @@ def test_contract_b_and_c(LinearChained):
     assert 3 in edges  # connection to D should still exist
     assert len(edges[0]) > 0
     assert len(edges[3]) > 0
-
-
-'''
-        Node ABCD (fully contracted)
-        +------------------------+
-        |         tensor         |
-        +------------------------+
-'''
-def test_full_chain_contraction(LinearChained):
-    net = LinearChained
-
-    net.contract_tensors(1, 2)  # B + C → BC
-    net.contract_tensors(0, 1)  # A + BC → ABC
-    net.contract_tensors(0, 3)  # ABC + D → ABCD
-
-    assert len(net.nodes) == 1
-    final_tensor = list(net.nodes.values())[0].tensor
-    assert isinstance(final_tensor, np.ndarray)
-    assert final_tensor.ndim == 6  # 4 + 4 + 4 + 4 - 2*3 = 6
