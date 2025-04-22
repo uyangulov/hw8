@@ -17,21 +17,21 @@ def LinearChained():
 
     tensor_A = np.random.rand(2, 2, 2, 2)
     edges_A = {1: [1, 3]}
-    node_A = Node(0, edges_A, tensor_A)
+    node_A = Node(edges_A, tensor_A)
 
     tensor_B = np.random.rand(2, 2, 2, 2)
     edges_B = {0: [2, 3], 2: [1, 0]}
-    node_B = Node(1, edges_B, tensor_B)
+    node_B = Node(edges_B, tensor_B)
 
     tensor_C = np.random.rand(2, 2, 2, 2)
     edges_C = {1: [0, 2], 3: [1, 3]}
-    node_C = Node(2, edges_C, tensor_C)
+    node_C = Node(edges_C, tensor_C)
 
     tensor_D = np.random.rand(2, 2, 2, 2)
     edges_D = {2: [0, 2]}
-    node_D = Node(3, edges_D, tensor_D)
+    node_D = Node(edges_D, tensor_D)
 
-    return TensorNetwork([node_A, node_B, node_C, node_D])
+    return TensorNetwork({0: node_A, 1: node_B, 2: node_C, 3: node_D})
 
 
 '''
@@ -44,24 +44,37 @@ def LinearChained():
   +-------+      +-------+      +-------+
 '''
 def test_contract_b_and_c(LinearChained):
-    network = LinearChained
+    net = LinearChained
 
-    # Contract nodes B (1) and C (2)
-    network.contract_tensors(1, 2)
+    net.contract_tensors(1, 2)
 
-    # Ensure node count decreased
-    assert len(network.nodes) == 3
+    assert 1 in net.nodes
+    assert 2 not in net.nodes
+    new_tensor = net.nodes[1].tensor
+    assert isinstance(new_tensor, np.ndarray)
+    assert new_tensor.ndim == 6  # 4+4-2 = 6, due to contraction of 2 axes
 
-    # Ensure the remaining nodes are Node 0, 1 (B⊗C), and 3
-    assert 0 in network.nodes
-    assert 3 in network.nodes
-    assert 1 in network.nodes  # the merged B–C node
+    edges = net.nodes[1].out_edges
+    assert 0 in edges  # connection to A should still exist
+    assert 3 in edges  # connection to D should still exist
+    assert len(edges[0]) > 0
+    assert len(edges[3]) > 0
 
-    # Ensure the new tensor is of expected shape: (2,2,2,2)
-    # because contracting over 2 axes of 4-dim tensors
-    new_tensor = network.nodes[1].tensor
-    assert new_tensor.shape == (2, 2, 2, 2)
 
-    # Ensure it has edges to node 0 and node 3
-    new_edges = network.nodes[1].edges
-    assert 0 in new_edges or 3 in new_edges
+'''
+        Node ABCD (fully contracted)
+        +------------------------+
+        |         tensor         |
+        +------------------------+
+'''
+def test_full_chain_contraction(LinearChained):
+    net = LinearChained
+
+    net.contract_tensors(1, 2)  # B + C → BC
+    net.contract_tensors(0, 1)  # A + BC → ABC
+    net.contract_tensors(0, 3)  # ABC + D → ABCD
+
+    assert len(net.nodes) == 1
+    final_tensor = list(net.nodes.values())[0].tensor
+    assert isinstance(final_tensor, np.ndarray)
+    assert final_tensor.ndim == 6  # 4 + 4 + 4 + 4 - 2*3 = 6
