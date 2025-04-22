@@ -76,6 +76,7 @@ class TensorNetwork:
                 if new_node_id in neighbor.out_edges:
                     neighbor.out_edges[new_node_id].extend(updated_edges)
                 else:
+                    neighbor.out_edges[new_node_id] = updated_edges
 
     def contract_tensors(self, i: int, j: int) -> int:
         if i > j:
@@ -96,5 +97,7 @@ class TensorNetwork:
         new_tensor = np.tensordot(
             node_i.tensor, node_j.tensor, axes=(contracted_i, contracted_j))
         
+        self._update_neighbors(i, j, new_node_id=i)
         new_node = Node(out_edges=new_edges, tensor=new_tensor)
-
+        self.nodes[i] = new_node
+        del self.nodes[j]
