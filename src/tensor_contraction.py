@@ -1,6 +1,8 @@
-import numpy as np
 from __future__ import annotations
+import numpy as np
+import networkx as nx
 from typing import List, Dict
+import matplotlib.pyplot as plt
 
 
 class Node:
@@ -21,15 +23,6 @@ class TensorNetwork:
         reverse_map = -np.ones(tensor_rank, dtype=int)
         reverse_map[remaining] = np.arange(len(remaining))
         return reverse_map
-
-    def _remap_edges(self, edges: Dict[int, List[int]], reverse_map: np.ndarray) -> Dict[int, List[int]]:
-        remapped = {}
-        for neighbor, indices in edges.items():
-            remapped_indices = [reverse_map[i]
-                                for i in indices if reverse_map[i] != -1]
-            if remapped_indices:
-                remapped[neighbor] = remapped_indices
-        return remapped
 
     def _merge_edges(self,
                      a: int,
@@ -79,6 +72,12 @@ class TensorNetwork:
                     neighbor.out_edges[new_node_id] = updated_edges
 
     def contract_tensors(self, i: int, j: int) -> int:
+        if i == j:
+            return i 
+        if i not in self.nodes or j not in self.nodes:
+            raise ValueError(
+                f"Cannot contract: node {i} or {j} not in network")
+
         if i > j:
             i, j = j, i
 
@@ -96,8 +95,37 @@ class TensorNetwork:
             i, j, node_i.out_edges, node_j.out_edges, map_i, map_j, offset)
         new_tensor = np.tensordot(
             node_i.tensor, node_j.tensor, axes=(contracted_i, contracted_j))
-        
+
         self._update_neighbors(i, j, new_node_id=i)
         new_node = Node(out_edges=new_edges, tensor=new_tensor)
         self.nodes[i] = new_node
         del self.nodes[j]
+        return i
+
+    def draw_network(self, title='Tensor Network'):
+        G = nx.MultiDiGraph()
+        edge_index_map = {}  # (src, dst) -> list of indices
+
+        for node_id, node in self.nodes.items():
+            G.add_node(node_id)
+            for neighbor, indices in node.out_edges.items():
+                if neighbor in self.nodes:
+                    for _ in indices:
+                        G.add_edge(node_id, neighbor)
+                    edge_index_map[(node_id, neighbor)] = indices
+
+        pos = nx.spring_layout(G)
+        nx.draw(G, pos, with_labels=True)
+
+        # Custom edge label rendering for MultiDiGraph
+        ax = plt.gca()
+        for (u, v), indices in edge_index_map.items():
+            x1, y1 = pos[u]
+            x2, y2 = pos[v]
+            alpha = 0.15  # position near the start of the edge
+            x, y = (1 - alpha) * x1 + alpha * x2, (1 - alpha) * y1 + alpha * y2
+            label = str(indices)
+            ax.text(x, y, label, color = 'red')
+
+        plt.title(title)
+        plt.show()
