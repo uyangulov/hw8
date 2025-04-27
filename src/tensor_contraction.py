@@ -54,7 +54,9 @@ class TensorNetwork:
         if not self.active[i] or not self.active[j]:
             raise ValueError(f"Either {i} or {j} is inactive")
 
-        if self.mutual_ranges(i, j) != self.mutual_ranges(j, i):
+        print(self.mutual_ranges(i, j))
+        print(self.mutual_ranges(j, i))
+        if np.any(self.mutual_ranges(i, j) != self.mutual_ranges(j, i)):
             raise ValueError(
                 f"Cannot merge nodes {i}, {j} over dims of different size")
 
@@ -88,8 +90,8 @@ class TensorNetwork:
         y = self.links_of(j)
         rg_x = self.ranges_of(i)
         rg_y = self.ranges_of(j)
+        self.nodes[j].dim_ranges = np.concatenate([rg_x[x != j], rg_y[y != i]])
         self.nodes[j].links = np.concatenate([x[x != j], y[y != i]])
-        self.nodes[j].dim_ranges = np.concatenate(rg_x[x != i], rg_y[y != j])
         self.active[i] = False
         return cost
 
