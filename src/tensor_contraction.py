@@ -5,15 +5,13 @@ import matplotlib.pyplot as plt
 
 class Node:
 
-    def __init__(self, links, link_dims, dim_ranges):
+    def __init__(self, links, link_dims):
         '''
         links[i] is index of neighbor of node connected to i-th dimension
         link_dims[i] is neighbor's dimension connected to dimension i 
-        dim_ranges[i] is size of dimension i
         '''
         self.links = np.array(links, dtype=int)
         self.link_dims = np.array(link_dims, dtype=int)
-        self.dim_ranges = np.array(dim_ranges)
 
     @property
     def ndims(self):
@@ -23,15 +21,9 @@ class Node:
         '''
         If any connections to node with index 'old', redirect to index 'new'
         '''
-        # mask = self.links == old
-        # self.links[mask] = new
-        # self.link_dims[mask] = mapping[self.link_dims[mask]] + offset
-        print(old, new)
-        for i, n in enumerate(self.links):
-            if n == old:
-                print(" ", i, self.link_dims[i])
-                self.links[i] = new
-                self.link_dims[i] = mapping[self.link_dims[i]] + offset
+        mask = self.links == old
+        self.links[mask] = new
+        self.link_dims[mask] = mapping[self.link_dims[mask]] + offset
 
 
 class Edge:
@@ -70,9 +62,6 @@ class TensorNetwork:
     def links_of(self, i):
         return self.nodes[i].links
 
-    def ranges_of(self, i):
-        return self.nodes[i].dim_ranges
-
     def ndims_of(self, i):
         return self.nodes[i].ndims
 
@@ -86,12 +75,12 @@ class TensorNetwork:
     def active_nodes(self):
         return np.flatnonzero(self.active)
 
-    def mutual_ranges(self, i, j):
+    def n_mutual_ranges(self, i, j):
         '''
         Return sizes of dimensions to be merged with node j
         (or empty array, if no such dimensions)
         '''
-        return self.ranges_of(i)[self.links_of(i) == j]
+        return np.sum(self.links_of(i) == j)
 
     def validate_merge(self, i: int, j: int) -> None:
 
@@ -109,11 +98,10 @@ class TensorNetwork:
         '''
         Cost of merge, including case of no common indices
         '''
-        cost = np.prod(self.ranges_of(i)) * np.prod(self.ranges_of(j))
-        mutual_ranges = self.mutual_ranges(i, j)
-        if mutual_ranges.size != 0:
-            cost /= np.prod(mutual_ranges)
-        return cost
+        exponent = self.ndims_of(i) + self.ndims_of(j)
+        # if any common dims, they were accounted twise, so subtract
+        exponent -= self.n_mutual_ranges(i, j)
+        return (1 << exponent)
 
     def map_after_drop(self, i, j):
         orig_len = self.ndims_of(i)
@@ -140,14 +128,14 @@ class TensorNetwork:
         # replace their connection to i with a connection to j
         map_a, offset = self.map_after_drop(i, j)
         map_b, _ = self.map_after_drop(j, i)
-        
-        #update connections of j-th node neighbors
+
+        # update connections of j-th node neighbors
         for neighbor in self.neighbors_of(j):
             if neighbor not in [-1, i]:
                 self.nodes[neighbor].redirect(j, j,  # j, j is not a typo
                                               mapping=map_b, offset=offset)
-        
-        #update connections of i-th node neighbors and reassign them to j
+
+        # update connections of i-th node neighbors and reassign them to j
         for neighbor in self.neighbors_of(i):
             if neighbor not in [-1, j]:
                 print('neighbor = ', neighbor)
@@ -156,11 +144,8 @@ class TensorNetwork:
         # Save result of merge to j according to rules of np.tensordot
         x = self.links_of(i)
         y = self.links_of(j)
-        rg_x = self.ranges_of(i)
-        rg_y = self.ranges_of(j)
         ld_x = self.link_dims_of(i)
         ld_y = self.link_dims_of(j)
-        self.nodes[j].dim_ranges = np.concatenate([rg_x[x != j], rg_y[y != i]])
         self.nodes[j].link_dims = np.concatenate([ld_x[x != j], ld_y[y != i]])
         self.nodes[j].links = np.concatenate([x[x != j], y[y != i]])
         self.active[i] = False
@@ -169,8 +154,8 @@ class TensorNetwork:
     def draw_network(self, title='Tensor Network'):
 
         G = nx.MultiDiGraph()
-        edge_index_map = {}  # (src, dst) -> list of indices
-
+        edge_index_map = {} 
+        
         for i, node in enumerate(self.nodes):
             if not self.active[i]:
                 continue
@@ -183,7 +168,6 @@ class TensorNetwork:
         pos = nx.spring_layout(G)
         nx.draw(G, pos, with_labels=True)
 
-        # Custom edge label rendering for MultiDiGraph
         ax = plt.gca()
         for (u, v), indices in edge_index_map.items():
             x1, y1 = pos[u]
