@@ -2,11 +2,9 @@ import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
 
-class Edge:
-    def __init__(self, nodes,)
 
 class Node:
-    
+
     def __init__(self, links, link_dims, dim_ranges):
         '''
         links[i] is index of neighbor of node connected to i-th dimension
@@ -36,23 +34,35 @@ class Node:
                 self.link_dims[i] = mapping[self.link_dims[i]] + offset
 
 
+class Edge:
+    def __init__(self, nodes, dims):
+        self.nodes = nodes
+        self.dims = dims
+
+
 class TensorNetwork:
 
-    @classmethod
-    def validate_nodes(cls, nodes):
-        for my_index, node in enumerate(nodes):
-            for my_dim, neighbor_index in enumerate(node.links):
-                their_dim = node.link_dims[my_dim]
-                neighbor = nodes[neighbor_index]
-                print(my_index, neighbor_index)
-                print(their_dim)
-                print(neighbor.links[their_dim])
-                assert neighbor.links[their_dim] == my_index
-
     def __init__(self, nodes: list[Node]):
-        TensorNetwork.validate_nodes(nodes)
         self.nodes = nodes
         self.active = np.full(len(self), True, dtype=bool)
+
+    @classmethod
+    def from_edges_and_nodes(cls, nodes, edges):
+
+        tn = TensorNetwork(nodes)
+
+        for edge in edges:
+            node1, node2 = edge.nodes
+            dim1, dim2 = edge.dims
+
+            # dim1 of node1 is connected to dim2 of node2
+            tn.nodes[node1].links[dim1] = node2
+            tn.nodes[node1].link_dims[dim1] = dim2
+
+            # dim1 of node1 is connected to dim2 of node2
+            tn.nodes[node2].links[dim2] = node1
+            tn.nodes[node2].link_dims[dim2] = dim1
+        return tn
 
     def __len__(self) -> int:
         return len(self.nodes)
@@ -120,7 +130,7 @@ class TensorNetwork:
     def merge_nodes(self, i: int, j: int) -> int:
         '''
         1) Merge nodes i and j
-        2) Save result at index j
+        2) Save result at index j (modifies state of network)
         3) Return cost of the merge
         '''
         self.validate_merge(i, j)
@@ -130,11 +140,17 @@ class TensorNetwork:
         # replace their connection to i with a connection to j
         map_a, offset = self.map_after_drop(i, j)
         map_b, _ = self.map_after_drop(j, i)
+        
+        #update connections of j-th node neighbors
+        for neighbor in self.neighbors_of(j):
+            if neighbor not in [-1, i]:
+                self.nodes[neighbor].redirect(j, j,  # j, j is not a typo
+                                              mapping=map_b, offset=offset)
+        
+        #update connections of i-th node neighbors and reassign them to j
         for neighbor in self.neighbors_of(i):
             if neighbor not in [-1, j]:
                 print('neighbor = ', neighbor)
-                self.nodes[neighbor].redirect(j, j,  # j, j is not a typo
-                                              mapping=map_b, offset=offset)
                 self.nodes[neighbor].redirect(i, j, mapping=map_a, offset=0)
 
         # Save result of merge to j according to rules of np.tensordot
