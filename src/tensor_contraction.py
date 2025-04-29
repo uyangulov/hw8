@@ -75,10 +75,10 @@ class TensorNetwork:
     def active_nodes(self):
         return np.flatnonzero(self.active)
 
-    def n_mutual_ranges(self, i, j):
+    def n_mutual_dims(self, i, j):
         '''
-        Return sizes of dimensions to be merged with node j
-        (or empty array, if no such dimensions)
+        Return number of dimensions to be merged with node j
+        (0 if no such dimensions)
         '''
         return np.sum(self.links_of(i) == j)
 
@@ -100,7 +100,7 @@ class TensorNetwork:
         '''
         exponent = self.ndims_of(i) + self.ndims_of(j)
         # if any common dims, they were accounted twise, so subtract
-        exponent -= self.n_mutual_ranges(i, j)
+        exponent -= self.n_mutual_dims(i, j)
         return (1 << exponent)
 
     def map_after_drop(self, i, j):
@@ -124,8 +124,7 @@ class TensorNetwork:
         self.validate_merge(i, j)
         cost = self.merge_cost(i, j)
 
-        # For every neighbor connected to node i,
-        # replace their connection to i with a connection to j
+        # map from indices of nodes i and j to nodes of contracted tensors
         map_a, offset = self.map_after_drop(i, j)
         map_b, _ = self.map_after_drop(j, i)
 
@@ -138,15 +137,12 @@ class TensorNetwork:
         # update connections of i-th node neighbors and reassign them to j
         for neighbor in self.neighbors_of(i):
             if neighbor not in [-1, j]:
-                print('neighbor = ', neighbor)
                 self.nodes[neighbor].redirect(i, j, mapping=map_a, offset=0)
 
         # Save result of merge to j according to rules of np.tensordot
-        x = self.links_of(i)
-        y = self.links_of(j)
-        ld_x = self.link_dims_of(i)
-        ld_y = self.link_dims_of(j)
-        self.nodes[j].link_dims = np.concatenate([ld_x[x != j], ld_y[y != i]])
+        x, y = self.links_of(i), self.links_of(j)
+        lx, ly = self.link_dims_of(i), self.link_dims_of(j)
+        self.nodes[j].link_dims = np.concatenate([lx[x != j], ly[y != i]])
         self.nodes[j].links = np.concatenate([x[x != j], y[y != i]])
         self.active[i] = False
         return cost
@@ -154,8 +150,8 @@ class TensorNetwork:
     def draw_network(self, title='Tensor Network'):
 
         G = nx.MultiDiGraph()
-        edge_index_map = {} 
-        
+        edge_index_map = {}
+
         for i, node in enumerate(self.nodes):
             if not self.active[i]:
                 continue
