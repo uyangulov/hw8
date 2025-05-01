@@ -1,0 +1,248 @@
+import numpy as np
+import networkx as nx
+import matplotlib.pyplot as plt
+from definitions import RX, RZZ
+
+
+class Node:
+
+    def __init__(self, ndims, tensor=None, color="blue"):
+        self.links = np.full(ndims, -1, dtype=int)
+        self.link_dims = np.full(ndims, -1, dtype=int)
+        self.tensor = tensor
+        self.color = color
+
+    def connect_to(self, neighbor, our_dim, their_dim):
+        self.links[our_dim] = neighbor
+        self.link_dims[our_dim] = their_dim
+
+    def redirect(self, old, new, mapping, offset):
+        '''
+        If any connections to node with index 'old', redirect to index 'new'.
+        Remap indices according to given index mapping and index offset
+        '''
+        mask = self.links == old
+        self.links[mask] = new
+        self.link_dims[mask] = mapping[self.link_dims[mask]] + offset
+
+
+class TensorNetwork:
+
+    def __init__(self, nodes: list[Node]):
+        self.nodes = nodes
+        self.active = np.full(len(self), True, dtype=bool)
+
+    def __len__(self) -> int:
+        return len(self.nodes)
+
+    def links_of(self, i):
+        return self.nodes[i].links
+
+    def ndims_of(self, i):
+        return self.nodes[i].links.size
+
+    def link_dims_of(self, i):
+        return self.nodes[i].link_dims
+
+    def neighbors_of(self, i):
+        return np.unique(self.links_of(i))
+
+    @property
+    def active_nodes(self):
+        return np.flatnonzero(self.active)
+
+    def n_mutual_dims(self, i, j):
+        '''
+        Return number of dimensions to be merged with node j
+        (zero if no such dimensions)
+        '''
+        return np.sum(self.links_of(i) == j)
+
+    def validate_merge(self, i: int, j: int) -> None:
+        if i == j:
+            raise ValueError(f"Attempt to merge node {i} with itself")
+
+        if i >= len(self) or j >= len(self):
+            raise ValueError(
+                f"Cannot contract: node {i} or {j} not in network")
+
+        if not self.active[i] or not self.active[j]:
+            raise ValueError(f"Either {i} or {j} is inactive")
+
+    def merge_cost(self, i,  j):
+        '''
+        Cost of merge, including case of no common indices
+        '''
+        exponent = self.ndims_of(i) + self.ndims_of(j)
+        # if any common dims, they were accounted twise, so subtract
+        exponent -= self.n_mutual_dims(i, j)
+        return (1 << exponent)
+
+    def map_after_drop(self, i, j):
+        drop = self.links_of(i) == j
+        mapping = np.cumsum(~drop) - 1
+        mapping[drop] = -1
+        offset = np.sum(~drop)
+        return mapping, offset
+
+    def merge_nodes(self, i: int, j: int, actually_contract=False) -> int:
+        '''
+        1) Merge nodes i and j
+        2) Save result at index j (modifies state of network)
+        3) Return cost of the merge
+        '''
+        self.validate_merge(i, j)
+        cost = self.merge_cost(i, j)
+
+        if actually_contract:
+            dims_ii = np.flatnonzero(self.links_of(i) == j)
+            dims_jj = self.link_dims_of(i)[dims_ii]
+            self.nodes[j].tensor = np.tensordot(
+                self.nodes[i].tensor,
+                self.nodes[j].tensor,
+                axes=(dims_ii, dims_jj)
+            )
+
+        # map from indices of nodes i and j to nodes of contracted tensors
+        map_a, offset = self.map_after_drop(i, j)
+        map_b, _ = self.map_after_drop(j, i)
+
+        # update connections of j-th node neighbors
+        for neighbor in self.neighbors_of(j):
+            if neighbor not in [-1, i]:
+                self.nodes[neighbor].redirect(j, j,  # j, j is not a typo
+                                              mapping=map_b, offset=offset)
+
+        # update connections of i-th node neighbors and reassign them to j
+        for neighbor in self.neighbors_of(i):
+            if neighbor not in [-1, j]:
+                self.nodes[neighbor].redirect(i, j, mapping=map_a, offset=0)
+
+        # Save result of merge to j according to rules of np.tensordot
+        x, y = self.links_of(i), self.links_of(j)
+        lx, ly = self.link_dims_of(i), self.link_dims_of(j)
+        self.nodes[j].link_dims = np.concatenate([lx[x != j], ly[y != i]])
+        self.nodes[j].links = np.concatenate([x[x != j], y[y != i]])
+        self.active[i] = False
+
+        return cost
+
+    def draw_network(self, h=5, w=7):
+        plt.figure(figsize=(w, h))
+
+        G = nx.MultiDiGraph()
+        edge_labels = {}
+
+        for i, node in enumerate(self.nodes):
+            if not self.active[i]:
+                continue
+            G.add_node(i, color=node.color)
+            for dim, j in enumerate(node.links):
+                if j != -1:
+                    G.add_edge(i, j)
+                    edge_labels[(i, j)] = edge_labels.get((i, j), []) + [dim]
+
+        pos = nx.spring_layout(G)
+        node_colors = [G.nodes[n]['color'] for n in G.nodes]
+
+        nx.draw(G, pos, with_labels=True,
+                node_color=node_colors, node_size=800)
+        ax = plt.gca()
+
+        for (u, v), dims in edge_labels.items():
+            x = (1 - 0.15) * pos[u][0] + 0.15 * pos[v][0]
+            y = (1 - 0.15) * pos[u][1] + 0.15 * pos[v][1]
+            ax.text(x, y, str(dims), color='red')
+
+        plt.show()
+
+    @classmethod
+    def qaoa_like_from_params(cls,
+                              lambd,
+                              gammas,
+                              betas,
+                              generate_meas_layer=True):
+        return cls._qaoa_like_generic(lambd,
+                                      gammas.size,
+                                      gammas,
+                                      betas,
+                                      generate_meas_layer)
+
+    @classmethod
+    def qaoa_like_tree_only(cls,
+                            lambd,
+                            n_layers,
+                            generate_meas_layer=True):        
+        return cls._qaoa_like_generic(lambd,
+                                      n_layers,
+                                      gammas=None,
+                                      betas=None,
+                                      generate_meas_layer = generate_meas_layer)
+
+    @classmethod
+    def _qaoa_like_generic(cls, lambd,
+                           n_layers,
+                           gammas,
+                           betas,
+                           generate_meas_layer):
+        '''
+        build qaoa like tensor with tetris algorithm
+        '''
+        
+        generate_tensors = (gammas is not None)
+        n_qubits = lambd.shape[0]
+        nodes = []
+        # for every wire in quantum circuit, track last node on it
+        last_node_on_wire = np.full(n_qubits, -1, dtype=int)
+        # for every wire in quantum circuit, track last OUTPUT dim on it
+        last_dim_on_wire = np.full(n_qubits, -1, dtype=int)
+
+        def connect_to_wire(wire, dim):
+            last = len(nodes) - 1
+            nodes[last_node_on_wire[wire]].connect_to(
+                our_dim=last_dim_on_wire[wire],
+                neighbor=last,
+                their_dim=dim
+            )
+            nodes[last].connect_to(
+                our_dim=dim,
+                neighbor=last_node_on_wire[wire],
+                their_dim=last_dim_on_wire[wire],
+            )
+
+        # initial state tensors
+        plus = np.array([1, 1]) / np.sqrt(2) if generate_tensors else None
+        for i in range(n_qubits):
+            nodes.append(Node(1, color="red", tensor=plus))
+            last_node_on_wire[i] = len(nodes) - 1
+            last_dim_on_wire[i] = 0
+
+        for layer in range(n_layers):
+            rzz = RZZ(gammas[layer]) if generate_tensors else None
+            rx = RX(betas[layer]) if generate_tensors else None
+            # rzz layer
+            for i in range(n_qubits):
+                for j in range(i):
+                    if lambd[i, j]:
+                        nodes.append(Node(4, tensor=rzz))
+                        connect_to_wire(wire=i, dim=0)
+                        connect_to_wire(wire=j, dim=1)
+                        last_node_on_wire[i] = len(nodes) - 1
+                        last_node_on_wire[j] = len(nodes) - 1
+                        last_dim_on_wire[i] = 2
+                        last_dim_on_wire[j] = 3
+            # rx layer
+            for i in range(n_qubits):
+                nodes.append(Node(2, color="green", tensor=rx))
+                connect_to_wire(wire=i, dim=0)
+                last_node_on_wire[i] = len(nodes) - 1
+                last_dim_on_wire[i] = 1
+
+        # Measure
+        if generate_meas_layer:
+            proj = tensor=np.array([1, 0]) if generate_tensors else None
+            for i in range(n_qubits):
+                nodes.append(Node(1, color="pink", tensor=proj))
+                connect_to_wire(wire=i, dim=0)
+
+        return TensorNetwork(nodes)
