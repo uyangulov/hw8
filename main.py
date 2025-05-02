@@ -13,6 +13,15 @@ def generate_lambda(probability, n):
                 lambd[i, j] = 1
     return lambd
 
+def generate_lambda_nearest(n):
+    '''
+    Generate coupling matrix with nearest neighbor interaction
+    '''
+    lambd = np.zeros((n, n))
+    for i in range(n):
+        lambd[(i+1) % n, i] = 1
+    return lambd
+
 def run_optimization(lambd, n_layers, k=1):
     net = TensorNetwork.qaoa_like_tree_only(lambd=lambd, n_layers=n_layers, generate_meas_layer=True)
     opt = TensorNetworkOptimizer(net)
@@ -37,9 +46,9 @@ def run_circuit(lambd, gammas, betas):
     return elapsed_time, state.state
 
 
-n_layers = 1
+n_layers = 2
 n_trials = 10
-N_values = np.arange(1, 22, 3)
+N_values = np.arange(1, 25, 3)
 print(N_values)
 probabilities = [0.1, 0.3, 0.5, .7, 1]
 
@@ -48,7 +57,7 @@ betas = np.random.uniform(0, 2*np.pi, size=n_layers)
 
 
 max_attempts = 10
-csv_filename = "optimization_and_contraction_times.csv"
+csv_filename = "optimization_and_contraction_times_nn.csv"
 
 with open(csv_filename, mode='w', newline='') as file:
     writer = csv.writer(file)
@@ -73,7 +82,7 @@ with open(csv_filename, mode='w', newline='') as file:
         while len(opt_times) < n_trial_this and attempts < max_attempts:
             
             # lambdas are cached to avoid repeating qaoa problems
-            lambd = generate_lambda(probability, N)
+            lambd = generate_lambda_nearest(N)
             if lambd.tobytes() in seen_lambdas:
                 attempts += 1
                 continue
