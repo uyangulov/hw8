@@ -1,7 +1,8 @@
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
-from definitions import RX, RZZ
+from utils import RX, RZZ
+from copy import deepcopy
 
 
 class Node:
@@ -172,12 +173,12 @@ class TensorNetwork:
     def qaoa_like_tree_only(cls,
                             lambd,
                             n_layers,
-                            generate_meas_layer=True):        
+                            generate_meas_layer=True):
         return cls._qaoa_like_generic(lambd,
                                       n_layers,
                                       gammas=None,
                                       betas=None,
-                                      generate_meas_layer = generate_meas_layer)
+                                      generate_meas_layer=generate_meas_layer)
 
     @classmethod
     def _qaoa_like_generic(cls, lambd,
@@ -188,7 +189,7 @@ class TensorNetwork:
         '''
         build qaoa like tensor with tetris algorithm
         '''
-        
+
         generate_tensors = (gammas is not None)
         n_qubits = lambd.shape[0]
         nodes = []
@@ -240,9 +241,73 @@ class TensorNetwork:
 
         # Measure
         if generate_meas_layer:
-            proj = tensor=np.array([1, 0]) if generate_tensors else None
+            proj = tensor = np.array([1, 0]) if generate_tensors else None
             for i in range(n_qubits):
                 nodes.append(Node(1, color="pink", tensor=proj))
                 connect_to_wire(wire=i, dim=0)
 
         return TensorNetwork(nodes)
+
+
+class TensorNetworkOptimizer:
+
+    def __init__(self, network: TensorNetwork, log_file='tensor_optimization.log'):
+        '''
+        initialize optimizer with network (copy is made)
+        '''
+        self.network = deepcopy(network)
+        self.current_sequence = []
+        self.current_cost = 0
+
+    def optimize_network(self, k: int):
+        '''
+        1) find the best k-step sequence
+        2) apply its first step until fully contracted.
+        3) repeat until fully contracted
+        '''
+        while len(self.network.active_nodes) > 1:
+
+            best_sequence, best_cost = self.dfs(self.network,
+                                                best_cost=float('inf'),
+                                                sequence=[],
+                                                cost=0,
+                                                steps_left=k)
+
+            first_step = best_sequence[0]
+            node_i, node_j = first_step
+            step_cost = self.network.merge_nodes(node_i, node_j)
+            self.current_cost += step_cost
+            self.current_sequence.append((node_i, node_j))
+        return self.current_sequence, self.current_cost
+
+    def dfs(self, network: TensorNetwork,
+            best_cost: float,
+            sequence: list,
+            cost: float,
+            steps_left: int):
+        """
+        dfs to find the best k-step contraction sequence.
+        returns a tuple (best_sequence, best_cost)
+        """
+        best_sequence = None
+        active = network.active_nodes
+        for i, node_i in enumerate(active):
+            for j in range(i):
+                node_j = active[j]
+                if steps_left == 1 or len(network.active_nodes) == 2:
+                    step_cost = network.merge_cost(node_i, node_j)
+                    child_seq = sequence + [(node_i, node_j)]
+                    child_cost = cost + step_cost
+                else:
+                    network_copy = deepcopy(network)
+                    step_cost = network_copy.merge_nodes(node_i, node_j)
+                    child_seq, child_cost = self.dfs(network_copy,
+                                                     best_cost,
+                                                     sequence +
+                                                     [(node_i, node_j)],
+                                                     cost + step_cost,
+                                                     steps_left - 1)
+                if child_cost < best_cost:
+                    best_cost = child_cost
+                    best_sequence = child_seq
+        return best_sequence, best_cost
