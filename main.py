@@ -1,5 +1,4 @@
-from utils import State
-from tensor_contraction import TensorNetwork, TensorNetworkOptimizer
+from tensor_contraction import TensorNetwork, TensorNetworkOptimizer, State
 import numpy as np
 import time
 from itertools import product
@@ -40,7 +39,7 @@ def run_circuit(lambd, gammas, betas):
 
 n_layers = 1
 n_trials = 10
-N_values = np.arange(1, 20, 4)
+N_values = np.arange(1, 22, 3)
 print(N_values)
 probabilities = [0.1, 0.3, 0.5, .7, 1]
 
@@ -49,7 +48,7 @@ betas = np.random.uniform(0, 2*np.pi, size=n_layers)
 
 
 max_attempts = 10
-csv_filename = "optimization_and_contraction_times2.csv"
+csv_filename = "optimization_and_contraction_times.csv"
 
 with open(csv_filename, mode='w', newline='') as file:
     writer = csv.writer(file)

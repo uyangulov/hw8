@@ -1,8 +1,53 @@
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
-from utils import RX, RZZ
 from copy import deepcopy
+
+
+def RZZ(theta):
+    exponents = np.array([1, -1, -1, 1], dtype=np.complex128)
+    diagonal = np.diag(np.exp(-1j * theta * exponents / 2))
+    return diagonal.reshape((2, 2, 2, 2))
+
+
+def RX(theta):
+    X = np.array([
+        [0, 1],
+        [1, 0]
+    ])
+    return np.cos(theta / 2) * np.eye(2) - 1j * np.sin(theta/2) * X
+
+
+class State:
+    def __init__(self, n_qubits):
+        self.state = np.ones((2 ** n_qubits), dtype=complex)  # |+> state
+        self.state /= np.sqrt(2 ** n_qubits)
+        self.state = np.reshape(self.state, [2]*n_qubits)
+
+    def apply_1qubit(self, u, i):
+        a = np.tensordot(u, self.state, axes=((1), (i)))
+        self.state = np.moveaxis(a, 0, i)
+
+    def apply_2qubit(self, u, i, j):
+        a = np.tensordot(np.reshape(u, [2]*4),
+                         self.state, axes=((2, 3), (i, j)))
+        self.state = np.moveaxis(a, (0, 1), (i, j))
+
+    def get_probs(self):
+        return np.abs(self.state.reshape(-1))**2
+
+    def run_qaoa(self, lambd, gammas, betas):
+        n = lambd.shape[0]
+        operations = []
+        for layer, (gamma, beta) in enumerate(zip(gammas, betas)):
+            rzz = RZZ(gamma)
+            rx = RX(beta)
+            for i in range(n):
+                for j in range(i):
+                    if lambd[i, j] == 1:
+                        self.apply_2qubit(rzz, i, j)
+            for i in range(n):
+                self.apply_1qubit(rx, i)
 
 
 class Node:
@@ -80,6 +125,10 @@ class TensorNetwork:
         return (1 << exponent)
 
     def map_after_drop(self, i, j):
+        '''
+        Mapping between indices of i to indices of new tensor
+        (After contracting with j)
+        '''
         drop = self.links_of(i) == j
         mapping = np.cumsum(~drop) - 1
         mapping[drop] = -1
@@ -92,7 +141,7 @@ class TensorNetwork:
         2) Save result at index j (modifies state of network)
         3) Return cost of the merge
         '''
-        self.validate_merge(i, j)
+        # self.validate_merge(i, j) uncomment if checks necessary
         cost = self.merge_cost(i, j)
 
         if actually_contract:
@@ -104,7 +153,7 @@ class TensorNetwork:
                 axes=(dims_ii, dims_jj)
             )
 
-        # map from indices of nodes i and j to nodes of contracted tensors
+        # map from indices of nodes i and j to nodes of contracted tensor
         map_a, offset = self.map_after_drop(i, j)
         map_b, _ = self.map_after_drop(j, i)
 
@@ -125,7 +174,6 @@ class TensorNetwork:
         self.nodes[j].link_dims = np.concatenate([lx[x != j], ly[y != i]])
         self.nodes[j].links = np.concatenate([x[x != j], y[y != i]])
         self.active[i] = False
-
         return cost
 
     def draw_network(self, h=5, w=7):
@@ -163,6 +211,15 @@ class TensorNetwork:
                               gammas,
                               betas,
                               generate_meas_layer=True):
+        """
+        Create QAOA-like tensor network with given parameters.
+
+        Args:
+            lambd: Coupling matrix.
+            gammas: Array of gamma parameters.
+            betas: Array of beta parameters.
+            generate_meas_layer (bool, optional): Whether to include measurement layer. Defaults to True.
+        """
         return cls._qaoa_like_generic(lambd,
                                       gammas.size,
                                       gammas,
@@ -174,6 +231,16 @@ class TensorNetwork:
                             lambd,
                             n_layers,
                             generate_meas_layer=True):
+        """
+        Create QAOA-like tensor network without acutal tensors,
+        but with info about tensor dims
+        (used in contraction-order-finding algorithms)
+        Args:
+            lambd: Coupling matrix.
+            n_layers (int): Number of layers.
+            generate_meas_layer (bool, optional): Whether to include measurement layer. Defaults to True.
+            TensorNetwork: Constructed QAOA-like tensor network structure.
+        """
         return cls._qaoa_like_generic(lambd,
                                       n_layers,
                                       gammas=None,
@@ -187,9 +254,8 @@ class TensorNetwork:
                            betas,
                            generate_meas_layer):
         '''
-        build qaoa like tensor with tetris algorithm
+        build qaoa like tensor net with tetris algorithm
         '''
-
         generate_tensors = (gammas is not None)
         n_qubits = lambd.shape[0]
         nodes = []
@@ -211,7 +277,7 @@ class TensorNetwork:
                 their_dim=last_dim_on_wire[wire],
             )
 
-        # initial state tensors
+        # initial state tensors with |+> state
         plus = np.array([1, 1]) / np.sqrt(2) if generate_tensors else None
         for i in range(n_qubits):
             nodes.append(Node(1, color="red", tensor=plus))
