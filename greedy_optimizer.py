@@ -42,23 +42,24 @@ class TensorNetworkOptimizer:
         dfs to find the best k-step contraction sequence.
         returns a tuple (best_sequence, best_cost)
         """
-        if steps_left == 0 or len(network.active_nodes) <= 1:
-            return sequence, cost
-
         best_sequence = None
         active = network.active_nodes
-
         for i, node_i in enumerate(active):
             for j in range(i):
                 node_j = active[j]
-                network_copy = deepcopy(network)
-                step_cost = network_copy.merge_nodes(node_i, node_j)
-                child_seq, child_cost = self.dfs(network_copy,
-                                                 best_cost,
-                                                 sequence + [(node_i, node_j)],
-                                                 cost + step_cost,
-                                                 steps_left - 1)
-
+                if steps_left == 1 or len(network.active_nodes) == 2:
+                    step_cost = network.merge_cost(node_i, node_j)
+                    child_seq = sequence + [(node_i, node_j)]
+                    child_cost = cost + step_cost
+                else:
+                    network_copy = deepcopy(network)
+                    step_cost = network_copy.merge_nodes(node_i, node_j)
+                    child_seq, child_cost = self.dfs(network_copy,
+                                                     best_cost,
+                                                     sequence +
+                                                     [(node_i, node_j)],
+                                                     cost + step_cost,
+                                                     steps_left - 1)
                 if child_cost < best_cost:
                     best_cost = child_cost
                     best_sequence = child_seq
