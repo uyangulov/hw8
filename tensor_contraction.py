@@ -349,28 +349,47 @@ class TensorNetworkOptimizer:
             cost: float,
             steps_left: int):
         """
-        dfs to find the best k-step contraction sequence.
-        returns a tuple (best_sequence, best_cost)
+        DFS to find the best k-step contraction sequence.
+        First tries node pairs with shared indices.
+        If none found, tries stored invalid pairs (those without common indices).
         """
+        def run(node_i, node_j):
+            if steps_left == 1 or len(network.active_nodes) == 2:
+                step_cost = network.merge_cost(node_i, node_j)
+                child_seq = sequence + [(node_i, node_j)]
+                child_cost = cost + step_cost
+                return child_seq, child_cost
+            else:
+                network_copy = deepcopy(network)
+                step_cost = network_copy.merge_nodes(node_i, node_j)
+                return self.dfs(network_copy,
+                                best_cost,
+                                sequence + [(node_i, node_j)],
+                                cost + step_cost,
+                                steps_left - 1)
+
         best_sequence = None
         active = network.active_nodes
+        invalid_pairs = []
+
+        # Phase 1: Try pairs with mutual dimensions; collect invalids
         for i, node_i in enumerate(active):
             for j in range(i):
                 node_j = active[j]
-                if steps_left == 1 or len(network.active_nodes) == 2:
-                    step_cost = network.merge_cost(node_i, node_j)
-                    child_seq = sequence + [(node_i, node_j)]
-                    child_cost = cost + step_cost
+                if network.n_mutual_dims(node_i, node_j) > 0:
+                    child_seq, child_cost = run(node_i, node_j)
+                    if child_cost < best_cost:
+                        best_cost = child_cost
+                        best_sequence = child_seq
                 else:
-                    network_copy = deepcopy(network)
-                    step_cost = network_copy.merge_nodes(node_i, node_j)
-                    child_seq, child_cost = self.dfs(network_copy,
-                                                     best_cost,
-                                                     sequence +
-                                                     [(node_i, node_j)],
-                                                     cost + step_cost,
-                                                     steps_left - 1)
-                if child_cost < best_cost:
-                    best_cost = child_cost
-                    best_sequence = child_seq
+                    invalid_pairs.append((node_i, node_j))
+
+        # Phase 2: Try previously collected invalid pairs
+        for node_i, node_j in invalid_pairs:
+            child_seq, child_cost = run(node_i, node_j)
+            if child_cost < best_cost:
+                best_cost = child_cost
+                best_sequence = child_seq
+
         return best_sequence, best_cost
+
