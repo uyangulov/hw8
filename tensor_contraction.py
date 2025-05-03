@@ -138,7 +138,7 @@ class TensorNetwork:
         2) Save result at index j (modifies state of network)
         3) Return cost of the merge
         '''
-        # self.validate_merge(i, j) uncomment if checks necessary
+        self.validate_merge(i, j) 
         cost = self.merge_cost(i, j)
 
         if actually_contract:
@@ -371,6 +371,7 @@ class TensorNetworkOptimizer:
         best_sequence = None
         active = network.active_nodes
         invalid_pairs = []
+        found_valid = False
 
         # Phase 1: Try pairs with mutual dimensions; collect invalids
         for i, node_i in enumerate(active):
@@ -381,15 +382,17 @@ class TensorNetworkOptimizer:
                     if child_cost < best_cost:
                         best_cost = child_cost
                         best_sequence = child_seq
+                        found_valid = True
                 else:
                     invalid_pairs.append((node_i, node_j))
 
         # Phase 2: Try previously collected invalid pairs
-        for node_i, node_j in invalid_pairs:
-            child_seq, child_cost = run(node_i, node_j)
-            if child_cost < best_cost:
-                best_cost = child_cost
-                best_sequence = child_seq
+        if not found_valid:
+            for node_i, node_j in invalid_pairs:
+                child_seq, child_cost = run(node_i, node_j)
+                if child_cost < best_cost:
+                    best_cost = child_cost
+                    best_sequence = child_seq
 
         return best_sequence, best_cost
 
