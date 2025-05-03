@@ -33,3 +33,4 @@ htmlcov/
 
 # Notebook output
 *.nbconvert.ipynb
+.csv
